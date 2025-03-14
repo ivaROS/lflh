@@ -19,8 +19,8 @@ local_goal_dist = 1.5
 local_path_dir_dist = 0.5
 laser_max_range = 2.0
 
-a_min = -135
-a_max = 135
+a_min = -180 # -135
+a_max = 180 # 135
 lidar_dim = 720
 dt = 0.01
 step = 20
@@ -68,6 +68,7 @@ class Predictor:
         self.boundary[3 * n :][:, 1] = yy
 
     def update_status(self, msg):
+        # print("update_status")
         q1 = msg.pose.pose.orientation.x
         q2 = msg.pose.pose.orientation.y
         q3 = msg.pose.pose.orientation.z
@@ -88,25 +89,44 @@ class Predictor:
         return np.asarray(pr[:2, :]).T
 
     def update_global_path(self, msg):
+        # print("update_global_path")
+
         gp = []
         for pose in msg.poses:
             gp.append([pose.pose.position.x, pose.pose.position.y])
         gp = np.array(gp)
         x = gp[:, 0]
-        try:
-            xhat = scipy.signal.savgol_filter(x, 19, 3)
-        except:
-            xhat = x
+
+        # print("update_global_path 1")
+
+        # print('x: ', x)
+
+        xhat = x
+
+        # try:
+        #     xhat = scipy.signal.savgol_filter(x, 19, 3)
+        # except:
+        #     xhat = x
+
+        # print("update_global_path 2")
+
+
         y = gp[:, 1]
-        try:
-            yhat = scipy.signal.savgol_filter(y, 19, 3)
-        except:
-            yhat = y
+        # try:
+        #     yhat = scipy.signal.savgol_filter(y, 19, 3)
+        # except:
+        #     yhat = y
+
+        yhat = y
+
+        # print("update_global_path 3")
+
 
         gphat = np.column_stack((xhat, yhat))
         gphat.tolist()
         self.global_path = self.transform_lg(gphat, self.X, self.Y, self.PSI)
         self.local_goal = self.get_local_goal(self.global_path)
+        print("local_goal: ", self.local_goal)
         self.local_path_dir = self.get_local_path_dir(self.global_path)
 
     def get_local_goal(self, gp):
@@ -194,16 +214,68 @@ class Predictor:
         return safety_percentage
 
     def update_laser(self, msg):
-        self.raw_scan = np.array(msg.ranges)
+
+        # interpolate from 512 to 720
+
+        incoming_scan = np.array(msg.ranges)
+
+        max_range = 5.0 # rospy.get_param("/laser/range")
+        incoming_scan[np.isnan(incoming_scan)] = max_range
+        incoming_scan[np.isinf(incoming_scan)] = max_range
+
+        self.scan_size_des = 720
+        self.scan_angle_increment_des = 2 * np.pi / (self.scan_size_des - 1)
+
+        range_size = len(incoming_scan)
+        angle_increment_orig = 2 * np.pi / (range_size - 1)
+
+        self.scan_tmp = np.zeros(self.scan_size_des)
+        for i in range(0, self.scan_size_des):
+            theta = (i - self.scan_size_des/2) * self.scan_angle_increment_des
+            
+            idx_low = int(np.floor( (theta + np.pi) / angle_increment_orig))
+            # print("orig idx_low: ", idx_low)
+            idx_low = np.max([0, idx_low])
+            # print("clip idx_low: ", idx_low)
+
+            theta_low = (idx_low - range_size/2) * angle_increment_orig
+            # print("theta_low: ", theta_low)
+
+            idx_high = int(np.ceil( (theta + np.pi) / angle_increment_orig))
+            # print("orig idx_high: ", idx_high)
+
+            idx_high = np.min([range_size - 1, idx_high])
+            # print("clip idx_high: ", idx_high)
+
+            theta_high = (idx_high - range_size/2) * angle_increment_orig
+            # print("theta_high: ", theta_high)
+
+            # print("scan_data[idx_low]: ", scan_data[idx_low])
+            # print("scan_data[idx_high]: ", scan_data[idx_high])
+
+            self.scan_tmp[i] = incoming_scan[idx_low] +  \
+                                ((theta - theta_low) / (0.000000000001 + theta_high - theta_low)) * (incoming_scan[idx_high] - incoming_scan[idx_low])
+        self.raw_scan = self.scan_tmp
+
+        # max_range = 5.0
         self.clipped_scan = np.minimum(
-            self.raw_scan, self.params.laser_max_range
+            self.raw_scan, max_range
         ).astype(np.float32)
 
     def update_cmd_vel(
         self,
     ):
-        if self.clipped_scan is None or self.local_goal is None:
+        # print('update_cmd_vel')    
+
+        if self.clipped_scan is None:
             return
+        
+        # print('clipped scan exists')    
+
+        if self.local_goal is None:
+            return
+
+        # print('local goal exists')    
 
         # if needs hard turn
         try:
@@ -219,11 +291,11 @@ class Predictor:
                     print("Hard Turn Right")
                     self.turn_flag = -1
                 else:
-                    # print("Normal Operation")
+                    print("Normal Operation")
                     self.turn_flag = 0
             else:
                 if abs(direction_angle) < stop_turning_threshold:
-                    print("Resume Normal Operation")
+                    # print("Resume Normal Operation")
                     self.turn_flag = 0
         except:
             self.turn_flag = 0
@@ -237,7 +309,15 @@ class Predictor:
         else:
             scan = torch.from_numpy(self.clipped_scan[None]).to(self.params.device)
             local_goal = torch.from_numpy(self.local_goal[None]).to(self.params.device)
+
+            # print("scan: ", scan)
+            # print("local_goal: ", local_goal)
+
+
             cmd = self.policy(scan, local_goal)
+
+            # print("cmd: ", cmd)
+
             cmd = cmd[0].detach().cpu().numpy()  # remove batch size
             if not np.any(np.isnan(cmd)):
                 self.v, self.w = cmd
@@ -267,6 +347,8 @@ class Predictor:
 
 if __name__ == "__main__":
 
+    print("LfLH main")
+
     repo_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     folder_path = os.path.join("interesting_models", "LfD_2D", "2m_per_sec")
     params_path = os.path.join(repo_path, folder_path, "params.json")
@@ -291,8 +373,10 @@ if __name__ == "__main__":
     move_base_node = str(rospy.get_param("~move_base_node", "move_base"))
 
     sub_robot = rospy.Subscriber("odom", Odometry, predictor.update_status)
-    sub_gp = rospy.Subscriber(
-        os.path.join(move_base_node, "TrajectoryPlannerROS", "global_plan"),
+
+    global_plan_topic = os.path.join(move_base_node, "TebLocalPlannerROS", "global_plan")
+    print("global_plan_topic: ", global_plan_topic)
+    sub_gp = rospy.Subscriber(global_plan_topic,
         Path,
         predictor.update_global_path,
         queue_size=1,
@@ -303,7 +387,7 @@ if __name__ == "__main__":
     velocity_publisher = rospy.Publisher("cmd_vel", Twist, queue_size=1)
 
     client = dynamic_reconfigure.client.Client(
-        os.path.join(move_base_node, "TrajectoryPlannerROS")
+        os.path.join(move_base_node, "TebLocalPlannerROS")
     )
     client2 = dynamic_reconfigure.client.Client(
         os.path.join(move_base_node, "local_costmap", "inflation_layer")

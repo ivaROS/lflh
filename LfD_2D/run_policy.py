@@ -126,7 +126,7 @@ class Predictor:
         gphat.tolist()
         self.global_path = self.transform_lg(gphat, self.X, self.Y, self.PSI)
         self.local_goal = self.get_local_goal(self.global_path)
-        print("local_goal: ", self.local_goal)
+        # print("local_goal: ", self.local_goal)
         self.local_path_dir = self.get_local_path_dir(self.global_path)
 
     def get_local_goal(self, gp):
@@ -285,13 +285,13 @@ class Predictor:
             # print(direction_angle)
             if self.turn_flag == 0:
                 if direction_angle > turning_threshold:
-                    print("Hard Turn Left")
+                    # print("Hard Turn Left")
                     self.turn_flag = 1
                 elif direction_angle < -turning_threshold:
-                    print("Hard Turn Right")
+                    # print("Hard Turn Right")
                     self.turn_flag = -1
                 else:
-                    print("Normal Operation")
+                    # print("Normal Operation")
                     self.turn_flag = 0
             else:
                 if abs(direction_angle) < stop_turning_threshold:
@@ -328,7 +328,7 @@ class Predictor:
         while self.bch_safety_check(self.v, self.w, 1, 0) == 0:
             # new recovery: just turn in place
             if ctr < 1:
-                print("Recovery: Turn in Place")
+                # print("Recovery: Turn in Place")
                 self.v = 0
                 self.w = 2 * direction_angle
                 # if self.w > 0 and self.w < 0.1:
@@ -337,7 +337,7 @@ class Predictor:
                 #     self.w = -0.1
                 ctr += 1
             elif ctr >= 1:
-                print("Recovery: Back up")
+                # print("Recovery: Back up")
                 self.v = -0.2
                 self.w = 0
                 break
@@ -347,7 +347,7 @@ class Predictor:
 
 if __name__ == "__main__":
 
-    print("LfLH main")
+    # print("LfLH main")
 
     repo_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     folder_path = os.path.join("interesting_models", "LfD_2D", "2m_per_sec")
@@ -375,7 +375,7 @@ if __name__ == "__main__":
     sub_robot = rospy.Subscriber("odom", Odometry, predictor.update_status)
 
     global_plan_topic = os.path.join(move_base_node, "TebLocalPlannerROS", "global_plan")
-    print("global_plan_topic: ", global_plan_topic)
+    # print("global_plan_topic: ", global_plan_topic)
     sub_gp = rospy.Subscriber(global_plan_topic,
         Path,
         predictor.update_global_path,

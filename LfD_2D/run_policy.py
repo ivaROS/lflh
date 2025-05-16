@@ -214,7 +214,7 @@ class Predictor:
         return safety_percentage
 
     def update_laser(self, msg):
-
+        # print("update_laser")
         # interpolate from 512 to 720
 
         incoming_scan = np.array(msg.ranges)
@@ -342,6 +342,18 @@ class Predictor:
                 self.w = 0
                 break
 
+        max_lin_vel = 1.0
+        max_ang_vel = 1.0
+
+        if self.v > max_lin_vel:
+            self.v = max_lin_vel
+        elif self.v < -max_lin_vel:
+            self.v = -max_lin_vel
+        if self.w > max_ang_vel:
+            self.w = max_ang_vel
+        elif self.w < -max_ang_vel:
+            self.w = -max_ang_vel
+
         # print("[INFO] current v: {:4.2f}, w: {:5.2f}".format(self.v, self.w))
 
 
@@ -374,8 +386,8 @@ if __name__ == "__main__":
 
     sub_robot = rospy.Subscriber("odom", Odometry, predictor.update_status)
 
-    global_plan_topic = os.path.join(move_base_node, "TebLocalPlannerROS", "global_plan")
-    # print("global_plan_topic: ", global_plan_topic)
+    global_plan_topic = os.path.join(move_base_node, "TrajectoryPlannerROS", "global_plan")
+    print("global_plan_topic: ", global_plan_topic)
     sub_gp = rospy.Subscriber(global_plan_topic,
         Path,
         predictor.update_global_path,
@@ -384,10 +396,10 @@ if __name__ == "__main__":
     sub_scan = rospy.Subscriber(
         "scan", LaserScan, predictor.update_laser, queue_size=1
     )
-    velocity_publisher = rospy.Publisher("cmd_vel", Twist, queue_size=1)
+    velocity_publisher = rospy.Publisher("learned_cmd_vel", Twist, queue_size=1)
 
     client = dynamic_reconfigure.client.Client(
-        os.path.join(move_base_node, "TebLocalPlannerROS")
+        os.path.join(move_base_node, "TrajectoryPlannerROS")
     )
     client2 = dynamic_reconfigure.client.Client(
         os.path.join(move_base_node, "local_costmap", "inflation_layer")
